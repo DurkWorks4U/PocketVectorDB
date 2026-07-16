@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pocketvectordb-api
+    ports:
+      - "5000:5000"
+    environment:
+      SERVICE: api
+      DEBUG: "false"
+      STORAGE_DIR: /data/databases
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+    volumes:
+      - pocketvectordb_data:/data/databases
+      - pocketvectordb_backups:/data/backups
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - pocketvectordb
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pocketvectordb-dashboard
+    ports:
+      - "5001:5001"
+    environment:
+      SERVICE: dashboard
+      DEBUG: "false"
+      STORAGE_DIR: /data/databases
+      DASHBOARD_SECRET_KEY: ${DASHBOARD_SECRET_KEY:-your-secret-key-change-me}
+      SMTP_HOST: ${SMTP_HOST:-localhost}
+      SMTP_FROM: ${SMTP_FROM:-noreply@pocketvectordb.com}
+    volumes:
+      - pocketvectordb_data:/data/databases
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/login"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - pocketvectordb
+
+  admin:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pocketvectordb-admin
+    ports:
+      - "5002:5002"
+    environment:
+      SERVICE: admin
+      DEBUG: "false"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - pocketvectordb
+
+  # Optional: Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: pocketvectordb-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+      - dashboard
+      - admin
+    restart: unless-stopped
+    networks:
+      - pocketvectordb
+
+volumes:
+  pocketvectordb_data:
+    driver: local
+  pocketvectordb_backups:
+    driver: local
+
+networks:
+  pocketvectordb:
+    driver: bridge
